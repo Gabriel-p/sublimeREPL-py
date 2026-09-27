@@ -1,0 +1,9 @@
+[
+	{
+		"caption": "-"
+	},
+	{
+		"command": "repl_kill",
+		"caption": "Kill"
+	},
+]

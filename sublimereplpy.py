@@ -2,7 +2,6 @@
 
 import fcntl
 import os
-import os.path
 import queue
 import re
 import select
@@ -35,18 +34,14 @@ class Repl:
         """Initialize base REPL state."""
         self.id = uuid4().hex
 
-    def allow_restarts(self):
-        """Return whether this REPL supports restart behavior."""
-        return True
-
     def close(self):
         """Close the REPL process if it is still alive."""
         if self.is_alive():
             self.kill()
 
-    def name(self):
-        """Return the display name used by REPL views."""
-        raise NotImplementedError
+    # def name(self):
+    #     """Return the display name used by REPL views."""
+    #     raise NotImplementedError
 
     def is_alive(self):
         """Return whether the underlying process is still running."""
@@ -291,19 +286,19 @@ class ReplInsertTextCommand(sublime_plugin.TextCommand):
         self.view.insert(edit, int(pos), text)
 
 
-class ReplEraseTextCommand(sublime_plugin.TextCommand):
-    """Erase text from a REPL view range."""
+# class ReplEraseTextCommand(sublime_plugin.TextCommand):
+#     """Erase text from a REPL view range."""
 
-    def run(self, edit, start, end):
-        """Erase view content in the requested range.
+#     def run(self, edit, start, end):
+#         """Erase view content in the requested range.
 
-        Args:
-            edit: Sublime edit token.
-            start: Range start position.
-            end: Range end position.
-        """
-        self.view.set_read_only(False)  # make sure view is writable
-        self.view.erase(edit, sublime.Region(int(start), int(end)))
+#         Args:
+#             edit: Sublime edit token.
+#             start: Range start position.
+#             end: Range end position.
+#         """
+#         self.view.set_read_only(False)  # make sure view is writable
+#         self.view.erase(edit, sublime.Region(int(start), int(end)))
 
 
 class ReplPass(sublime_plugin.TextCommand):
@@ -442,19 +437,17 @@ class MemHistory(History):
 class ReplView:
     """Wrap a Sublime view and connect it to a running REPL."""
 
-    def __init__(self, view, repl, repl_restart_args, banner=None):
+    def __init__(self, view, repl, banner=None):
         """Initialize a REPL view bridge.
 
         Args:
             view: Sublime view used for REPL IO.
             repl: REPL backend instance.
-            repl_restart_args: Serialized restart arguments.
             banner: Optional text written before any REPL output.
         """
         self.repl = repl
         self._view = view
         self._window = view.window()
-        self._repl_launch_args = repl_restart_args
         # list of callable(repl) to handle view close events
         self.call_on_close = []
 
@@ -470,8 +463,6 @@ class ReplView:
         # view.settings().set("repl_external_id", repl.external_id)
         view.settings().set("repl_id", repl.id)
         view.settings().set("repl", True)
-        if repl.allow_restarts():
-            view.settings().set("repl_restart_args", repl_restart_args)
 
         rv_settings = settings.get("repl_view_settings", {})
         for setting, value in list(rv_settings.items()):
@@ -666,15 +657,15 @@ class ReplView:
         self._output_end += len(unistr)
         self._view.show(self.input_region)
 
-    def write_prompt(self, unistr):
-        """Write prompt text while preserving prompt insertion behavior.
+    # def write_prompt(self, unistr):
+    #     """Write prompt text while preserving prompt insertion behavior.
 
-        Args:
-            unistr: Prompt text.
-        """
-        self._prompt_size = 0
-        self.write(unistr)
-        self._prompt_size = len(unistr)
+    #     Args:
+    #         unistr: Prompt text.
+    #     """
+    #     self._prompt_size = 0
+    #     self.write(unistr)
+    #     self._prompt_size = len(unistr)
 
     def handle_repl_output(self):
         """Process queued output packets.
@@ -829,25 +820,20 @@ class ReplManager:
         Returns:
             ReplView | None: Created view wrapper or ``None`` on failure.
         """
-        repl_restart_args = {
-            "syntax": SYNTAX_FILE,
-        }
-        repl_restart_args.update(kwds)
-        # 'banner' is UI-only metadata: pull it out before it reaches the
-        # subprocess backend, but keep it in the restart args so restarts
-        # show the same banner again.
         banner = kwds.pop("banner", None)
         try:
             kwds = ReplManager.translate(window, kwds)
             r = SubprocessRepl(**kwds)
-            found = None
-            for view in window.views():
-                if view.id() == None:  # view_id:
-                    found = view
-                    break
-            view = found or window.new_file()
 
-            rv = ReplView(view, r, repl_restart_args, banner=banner)
+            # found = None
+            # for view in window.views():
+            #     if view.id() == None:  # view_id:
+            #         found = view
+            #         break
+            # view = found or window.new_file()
+            view = window.new_file()
+
+            rv = ReplView(view, r, banner=banner)
             rv.call_on_close.append(self._delete_repl)
             self.repl_views[r.id] = rv
             view.set_scratch(True)
@@ -860,35 +846,6 @@ class ReplManager:
         except Exception as e:
             traceback.print_exc()
             sublime.error_message(repr(e))
-
-    def restart(self, view, edit):
-        """Restart REPL for a given view using stored launch arguments.
-
-        Args:
-            view: Sublime view bound to a REPL.
-            edit: Sublime edit token.
-
-        Returns:
-            bool: Whether restart was triggered.
-        """
-        repl_restart_args = view.settings().get("repl_restart_args")
-        if not repl_restart_args:
-            sublime.message_dialog("No restart parameters found")
-            return False
-        rv = self.repl_view(view)
-        if rv:
-            if (
-                rv.repl
-                and rv.repl.is_alive()
-                and not sublime.ok_cancel_dialog("Still running. Really restart?")
-            ):
-                return False
-            rv.on_close()  # yes on_close, delete rv from
-
-        view.insert(edit, view.size(), "## RESTART ##")
-        repl_restart_args["view_id"] = view.id()
-        self.open(view.window(), **repl_restart_args)
-        return True
 
     def _delete_repl(self, repl_view):
         """Remove a closed REPL view from registry.
@@ -1018,28 +975,6 @@ class ReplOpenCommand(sublime_plugin.WindowCommand):
             **kwds: Backend arguments.
         """
         manager.open(self.window, **kwds)
-
-
-class ReplRestartCommand(sublime_plugin.TextCommand):
-    """Restart command for REPL-backed views."""
-
-    def run(self, edit):
-        """Restart current REPL view.
-
-        Args:
-            edit: Sublime edit token.
-        """
-        manager.restart(self.view, edit)
-
-    def is_visible(self):
-        """Return whether restart command should be shown."""
-        if not self.view:
-            return False
-        return bool(self.view.settings().get("repl_restart_args", None))
-
-    def is_enabled(self):
-        """Return whether restart command should be enabled."""
-        return self.is_visible()
 
 
 # REPL Comands ############################################
@@ -1199,6 +1134,29 @@ class ReplViewNextCommand(sublime_plugin.TextCommand):
         rv = manager.repl_view(self.view)
         if rv:
             rv.next_command(edit)
+
+
+class ReplKillCommand(sublime_plugin.TextCommand):
+    """Kill the active REPL's underlying process."""
+
+    def run(self, edit):
+        """Execute the kill command on the current REPL view.
+
+        Args:
+            edit: Sublime edit token.
+        """
+        rv = manager.repl_view(self.view)
+        if rv:
+            rv.repl.kill()
+
+    def is_visible(self):
+        """Return whether this view is a REPL view, for menu display."""
+        rv = manager.repl_view(self.view)
+        return bool(rv)
+
+    def is_enabled(self):
+        """Return whether the kill command can currently run."""
+        return self.is_visible()
 
 
 class SublimeReplListener(sublime_plugin.EventListener):

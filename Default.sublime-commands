@@ -2,20 +2,12 @@
     {
         "caption": "SublimeREPL-py: Run Current File",
         "command": "run_python_repl",
-        "args": {
-            "name": "python"
-        }
     },
     {
         "caption": "SublimeREPL-py: Interactive",
         "command": "run_python_repl",
         "args": {
-            "interactive": true,
-            "name": "python"
+            "interactive": true
         }
-    },
-    {
-        "caption": "SublimeREPL-py: Restart REPL",
-        "command": "repl_restart"
     }
 ]
